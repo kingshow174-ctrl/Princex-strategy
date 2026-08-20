@@ -17,6 +17,12 @@ TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 last_update_id = 0
 state = {s: {"in_setup": False, "direction": None, "candles_seen": 0, "swing_price": None} for s in SYMBOLS}
 
+MAIN_KEYBOARD = {
+    "keyboard": [["Current Price", "Auto Strategy"]],
+    "resize_keyboard": True,
+    "is_persistent": True
+}
+
 def get_candles(symbol, size=210):
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={INTERVAL}&outputsize={size}&apikey={API_KEY}"
     r = requests.get(url, timeout=15).json()
@@ -37,16 +43,11 @@ def ema(values, period):
         out.append(e)
     return out
 
-def send_message(text, with_button=True):
+def send_message(text, show_keyboard=True):
     payload = {"chat_id": CHAT_ID, "text": text}
-    if with_button:
-        payload["reply_markup"] = json.dumps({
-            "inline_keyboard": [[{"text": "Get current prices", "callback_data": "refresh"}]]
-        })
+    if show_keyboard:
+        payload["reply_markup"] = json.dumps(MAIN_KEYBOARD)
     requests.post(f"{TELEGRAM_API}/sendMessage", data=payload)
-
-def answer_callback(cid):
-    requests.post(f"{TELEGRAM_API}/answerCallbackQuery", data={"callback_query_id": cid})
 
 def get_live_prices_text():
     lines = []
@@ -58,16 +59,32 @@ def get_live_prices_text():
             lines.append(f"{s}: error")
     return "Current prices:\n" + "\n".join(lines)
 
+def get_strategy_status_text():
+    lines = [f"Auto Strategy: ALWAYS ACTIVE ({INTERVAL} timeframe)",
+             f"Confirmation: {CONFIRM_CANDLES} candles after EMA200 cross",
+             f"Take Profit: 1:{RR_RATIO} risk-reward",
+             "Stop Loss: swing high/low at cross point",
+             "", "Live setup status:"]
+    for s in SYMBOLS:
+        st = state[s]
+        if st["in_setup"]:
+            lines.append(f"{s}: watching {st['direction']} setup ({st['candles_seen']}/{CONFIRM_CANDLES} candles)")
+        else:
+            lines.append(f"{s}: no active setup")
+    return "\n".join(lines)
+
 def check_updates():
     global last_update_id
     r = requests.get(f"{TELEGRAM_API}/getUpdates", params={"offset": last_update_id + 1, "timeout": 0}, timeout=10).json()
     for u in r.get("result", []):
         last_update_id = u["update_id"]
-        if "callback_query" in u:
-            answer_callback(u["callback_query"]["id"])
-            send_message(get_live_prices_text(), with_button=False)
-        elif u.get("message", {}).get("text", "").strip() == "/price":
-            send_message(get_live_prices_text(), with_button=False)
+        text = u.get("message", {}).get("text", "").strip()
+        if text == "/start":
+            send_message("Princex Strategy bot online. Auto scanning is always running.")
+        elif text in ("/price", "Current Price"):
+            send_message(get_live_prices_text())
+        elif text in ("/status", "Auto Strategy"):
+            send_message(get_strategy_status_text())
 
 def process_symbol(symbol):
     data = get_candles(symbol)
