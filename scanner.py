@@ -9,15 +9,11 @@ CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 SYMBOLS = ["BTC/USD", "ETH/USD", "EUR/USD", "XAU/USD"]
 INTERVAL = "1min"
-CONFIRM_CANDLES = 3
-RR_RATIO = 2.5
 MAX_RUNTIME = 5 * 3600 + 50 * 60
-MIN_RISK_PCT = 0.0005  # ignore setups where risk is under 0.05% of price (junk/noise)
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 last_update_id = 0
-state = {s: {"in_setup": False, "direction": None, "candles_seen": 0,
-             "swing_price": None, "last_candle_time": None} for s in SYMBOLS}
+state = {s: {"last_candle_time": None} for s in SYMBOLS}
 
 MAIN_KEYBOARD = {
     "keyboard": [["Current Price", "Auto Strategy"]],
@@ -32,10 +28,8 @@ def get_candles(symbol, size=210):
         return None
     values = list(reversed(r["values"]))
     closes = [float(v["close"]) for v in values]
-    highs = [float(v["high"]) for v in values]
-    lows = [float(v["low"]) for v in values]
     times = [v["datetime"] for v in values]
-    return closes, highs, lows, times
+    return closes, times
 
 def ema(values, period):
     k = 2 / (period + 1)
@@ -63,18 +57,9 @@ def get_live_prices_text():
     return "Current prices:\n" + "\n".join(lines)
 
 def get_strategy_status_text():
-    lines = [f"Auto Strategy: ALWAYS ACTIVE ({INTERVAL} timeframe)",
-             f"Confirmation: {CONFIRM_CANDLES} closed candles after EMA200 cross",
-             f"Take Profit: 1:{RR_RATIO} risk-reward",
-             "Stop Loss: swing high/low during confirmation window",
-             "", "Live setup status:"]
-    for s in SYMBOLS:
-        st = state[s]
-        if st["in_setup"]:
-            lines.append(f"{s}: watching {st['direction']} setup ({st['candles_seen']}/{CONFIRM_CANDLES} candles)")
-        else:
-            lines.append(f"{s}: no active setup")
-    return "\n".join(lines)
+    return (f"Auto Strategy: ALWAYS ACTIVE ({INTERVAL} timeframe)\n"
+            f"Mode: instant alert on any EMA200 cross\n"
+            f"Markets watched: {', '.join(SYMBOLS)}")
 
 def check_updates():
     global last_update_id
@@ -93,14 +78,14 @@ def process_symbol(symbol):
     data = get_candles(symbol)
     if not data:
         return
-    closes, highs, lows, times = data
+    closes, times = data
     if len(closes) < 201:
         return
 
     st = state[symbol]
     current_candle_time = times[-1]
 
-    # only proceed if a NEW candle has actually closed since we last checked
+    # only act once per newly closed candle
     if st["last_candle_time"] == current_candle_time:
         return
     st["last_candle_time"] = current_candle_time
@@ -109,34 +94,10 @@ def process_symbol(symbol):
     prev_close, prev_ema = closes[-2], emas[-2]
     last_close, last_ema = closes[-1], emas[-1]
 
-    if not st["in_setup"]:
-        if prev_close < prev_ema and last_close > last_ema:
-            st.update(in_setup=True, direction="BUY", candles_seen=0, swing_price=lows[-1])
-        elif prev_close > prev_ema and last_close < last_ema:
-            st.update(in_setup=True, direction="SELL", candles_seen=0, swing_price=highs[-1])
-        return
-
-    if st["direction"] == "BUY":
-        st["swing_price"] = min(st["swing_price"], lows[-1])
-    else:
-        st["swing_price"] = max(st["swing_price"], highs[-1])
-    st["candles_seen"] += 1
-
-    if st["candles_seen"] >= CONFIRM_CANDLES:
-        entry = last_close
-        sl = st["swing_price"]
-        risk = abs(entry - sl)
-
-        if risk < entry * MIN_RISK_PCT:
-            st["in_setup"] = False
-            return
-
-        tp = entry + risk * RR_RATIO if st["direction"] == "BUY" else entry - risk * RR_RATIO
-        msg = (f"{symbol} {st['direction']} SETUP ({INTERVAL}, EMA200 cross confirmed)\n"
-               f"Entry: {entry}\nStop Loss: {sl}\nTake Profit (1:{RR_RATIO}): {round(tp, 5)}\n"
-               f"Confirmed after {CONFIRM_CANDLES} closed candles")
-        send_message(msg)
-        st["in_setup"] = False
+    if prev_close < prev_ema and last_close > last_ema:
+        send_message(f"{symbol} candle crossed ABOVE EMA200 ({INTERVAL})\nClose: {last_close}\nEMA200: {round(last_ema, 5)}")
+    elif prev_close > prev_ema and last_close < last_ema:
+        send_message(f"{symbol} candle crossed BELOW EMA200 ({INTERVAL})\nClose: {last_close}\nEMA200: {round(last_ema, 5)}")
 
 def main():
     start = time.time()
