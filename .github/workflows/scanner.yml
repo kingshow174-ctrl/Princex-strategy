@@ -1,11 +1,15 @@
 name: EMA200 Scanner
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
+concurrency:
+  group: scanner
+  cancel-in-progress: true
 jobs:
   run-scanner:
     runs-on: ubuntu-latest
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
