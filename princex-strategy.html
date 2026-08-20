@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Princex Strategy</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    min-height: 100vh;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    background: linear-gradient(90deg, #131722, #1c2030);
+    border-bottom: 1px solid #2a2e39;
+  }
+  header h1 {
+    font-size: 18px;
+    letter-spacing: 1px;
+    background: linear-gradient(90deg, #4fd1c5, #63b3ed);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .symbol-bar {
+    display: flex;
+    gap: 8px;
+    padding: 10px 16px;
+    overflow-x: auto;
+    background: #131722;
+    border-bottom: 1px solid #2a2e39;
+  }
+  .symbol-bar button {
+    flex: 0 0 auto;
+    background: #1c2030;
+    color: #9aa5b1;
+    border: 1px solid #2a2e39;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  .symbol-bar button.active,
+  .symbol-bar button:hover {
+    background: #4fd1c5;
+    color: #0d1117;
+    border-color: #4fd1c5;
+  }
+  #chart-container {
+    width: 100%;
+    height: calc(100vh - 110px);
+  }
+  #tv_chart {
+    width: 100%;
+    height: 100%;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>PRINCEX STRATEGY</h1>
+  <span id="clock" style="font-size:12px;color:#9aa5b1;"></span>
+</header>
+
+<div class="symbol-bar" id="symbolBar">
+  <button data-symbol="BINANCE:BTCUSDT" class="active">BTC/USDT</button>
+  <button data-symbol="BINANCE:ETHUSDT">ETH/USDT</button>
+  <button data-symbol="BINANCE:SOLUSDT">SOL/USDT</button>
+  <button data-symbol="OANDA:XAUUSD">XAU/USD</button>
+  <button data-symbol="OANDA:EURUSD">EUR/USD</button>
+  <button data-symbol="NASDAQ:AAPL">AAPL</button>
+</div>
+
+<div id="chart-container">
+  <div id="tv_chart"></div>
+</div>
+
+<script src="https://s3.tradingview.com/tv.js"></script>
+<script>
+  let tvWidget = null;
+  function loadChart(symbol) {
+    document.getElementById("tv_chart").innerHTML = "";
+    tvWidget = new TradingView.widget({
+      "autosize": true,
+      "symbol": symbol,
+      "interval": "15",
+      "timezone": "Etc/UTC",
+      "theme": "dark",
+      "style": "1",
+      "locale": "en",
+      "toolbar_bg": "#131722",
+      "enable_publishing": false,
+      "hide_top_toolbar": false,
+      "hide_legend": false,
+      "save_image": false,
+      "container_id": "tv_chart"
+    });
+    tvWidget.onChartReady(function() {
+      tvWidget.chart().createStudy("Moving Average Exponential", false, false, [200]);
+    });
+  }
+
+  loadChart("BINANCE:BTCUSDT");
+
+  document.querySelectorAll('.symbol-bar button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.symbol-bar button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      loadChart(btn.dataset.symbol);
+    });
+  });
+
+  function updateClock() {
+    const now = new Date();
+    document.getElementById('clock').textContent = now.toUTCString().split(' GMT')[0] + ' UTC';
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+</script>
+
+</body>
+</html>
