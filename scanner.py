@@ -2,6 +2,9 @@ import os
 import time
 import json
 import requests
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 API_KEY = os.environ["TWELVEDATA_API_KEY"]
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -11,12 +14,12 @@ CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 SYMBOLS = ["BTC/USD", "ETH/USD", "EUR/USD", "XAU/USD"]
 INTERVAL = "1min"
 MAX_RUNTIME = 5 * 3600 + 50 * 60
-SCAN_INTERVAL_SECONDS = 15 * 60  # 15 min -> ~384 requests/day, safely under 800/day free limit
+SCAN_INTERVAL_SECONDS = 15 * 60
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 last_update_id = 0
 state = {s: {"last_candle_time": None} for s in SYMBOLS}
-cache = {s: {"price": None, "ema200": None, "updated": None} for s in SYMBOLS}
+cache = {s: {"price": None, "ema200": None, "updated": None, "closes": None, "emas": None} for s in SYMBOLS}
 
 MAIN_KEYBOARD = {
     "keyboard": [["Current Price", "Auto Strategy"]],
@@ -53,6 +56,34 @@ def send_to_me(text, show_keyboard=True):
 def send_to_channel(text):
     requests.post(f"{TELEGRAM_API}/sendMessage", data={"chat_id": CHANNEL_ID, "text": text})
 
+def send_photo_to_me(path, caption=""):
+    with open(path, "rb") as f:
+        requests.post(f"{TELEGRAM_API}/sendPhoto", data={"chat_id": CHAT_ID, "caption": caption}, files={"photo": f})
+
+def send_photo_to_channel(path, caption=""):
+    with open(path, "rb") as f:
+        requests.post(f"{TELEGRAM_API}/sendPhoto", data={"chat_id": CHANNEL_ID, "caption": caption}, files={"photo": f})
+
+def make_chart(symbol, closes, emas):
+    path = "/tmp/chart.png"
+    last_n = 60
+    c = closes[-last_n:]
+    e = emas[-last_n:]
+    plt.figure(figsize=(8, 4.5), facecolor="#0d1117")
+    ax = plt.gca()
+    ax.set_facecolor("#0d1117")
+    ax.plot(c, color="#4fd1c5", linewidth=1.5, label="Price")
+    ax.plot(e, color="#ff5c5c", linewidth=1.5, label="EMA200")
+    ax.set_title(f"{symbol} - {INTERVAL} - Price vs EMA200", color="white")
+    ax.tick_params(colors="white")
+    for spine in ax.spines.values():
+        spine.set_color("#2a2e39")
+    ax.legend(facecolor="#131722", labelcolor="white")
+    plt.tight_layout()
+    plt.savefig(path, facecolor="#0d1117")
+    plt.close()
+    return path
+
 def get_cached_prices_text():
     lines = []
     for s in SYMBOLS:
@@ -79,6 +110,11 @@ def check_updates():
             send_to_me("Princex Strategy bot online. Auto scanning is always running.")
         elif text in ("/price", "Current Price"):
             send_to_me(get_cached_prices_text())
+            for s in SYMBOLS:
+                c = cache[s]
+                if c["closes"]:
+                    path = make_chart(s, c["closes"], c["emas"])
+                    send_photo_to_me(path, caption=f"{s} price vs EMA200")
         elif text in ("/status", "Auto Strategy"):
             send_to_me(get_strategy_status_text())
 
@@ -92,7 +128,7 @@ def process_symbol(symbol):
 
     emas = ema(closes, 200)
     last_close, last_ema = closes[-1], emas[-1]
-    cache[symbol] = {"price": last_close, "ema200": last_ema, "updated": times[-1]}
+    cache[symbol] = {"price": last_close, "ema200": last_ema, "updated": times[-1], "closes": closes, "emas": emas}
 
     st = state[symbol]
     current_candle_time = times[-1]
@@ -102,9 +138,11 @@ def process_symbol(symbol):
 
     prev_close, prev_ema = closes[-2], emas[-2]
     if prev_close < prev_ema and last_close > last_ema:
-        send_to_channel(f"GET READY — {symbol} just crossed ABOVE EMA200 ({INTERVAL})\nPrice: {last_close}")
+        path = make_chart(symbol, closes, emas)
+        send_photo_to_channel(path, caption=f"GET READY — {symbol} crossed ABOVE EMA200 ({INTERVAL})\nPrice: {last_close}")
     elif prev_close > prev_ema and last_close < last_ema:
-        send_to_channel(f"GET READY — {symbol} just crossed BELOW EMA200 ({INTERVAL})\nPrice: {last_close}")
+        path = make_chart(symbol, closes, emas)
+        send_photo_to_channel(path, caption=f"GET READY — {symbol} crossed BELOW EMA200 ({INTERVAL})\nPrice: {last_close}")
 
 def main():
     start = time.time()
