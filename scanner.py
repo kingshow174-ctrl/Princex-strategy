@@ -11,11 +11,12 @@ CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 SYMBOLS = ["BTC/USD", "ETH/USD", "EUR/USD", "XAU/USD"]
 INTERVAL = "1min"
 MAX_RUNTIME = 5 * 3600 + 50 * 60
-SCAN_INTERVAL_SECONDS = 75  # 4 symbols every 75s = ~3.2 req/min, safely under 8/min free limit
+SCAN_INTERVAL_SECONDS = 15 * 60  # 15 min -> ~384 requests/day, safely under 800/day free limit
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 last_update_id = 0
 state = {s: {"last_candle_time": None} for s in SYMBOLS}
+cache = {s: {"price": None, "ema200": None, "updated": None} for s in SYMBOLS}
 
 MAIN_KEYBOARD = {
     "keyboard": [["Current Price", "Auto Strategy"]],
@@ -52,24 +53,21 @@ def send_to_me(text, show_keyboard=True):
 def send_to_channel(text):
     requests.post(f"{TELEGRAM_API}/sendMessage", data={"chat_id": CHANNEL_ID, "text": text})
 
-def get_live_prices_text():
+def get_cached_prices_text():
     lines = []
     for s in SYMBOLS:
-        try:
-            r = requests.get(f"https://api.twelvedata.com/price?symbol={s}&apikey={API_KEY}", timeout=10).json()
-            if "price" in r:
-                lines.append(f"{s}: {r['price']}")
-            else:
-                lines.append(f"{s}: {r.get('message', 'unavailable')}")
-        except Exception as e:
-            lines.append(f"{s}: error - {e}")
-    return "Current prices:\n" + "\n".join(lines)
+        c = cache[s]
+        if c["price"] is None:
+            lines.append(f"{s}: not fetched yet, wait for next scan")
+        else:
+            lines.append(f"{s}: price {c['price']} | EMA200 {round(c['ema200'], 5)} | as of {c['updated']}")
+    return "Latest cached data (updates every 15 min):\n" + "\n".join(lines)
 
 def get_strategy_status_text():
     return (f"Auto Strategy: ALWAYS ACTIVE ({INTERVAL} timeframe)\n"
             f"Mode: instant channel alert on any EMA200 cross\n"
             f"Markets watched: {', '.join(SYMBOLS)}\n"
-            f"Scan interval: every {SCAN_INTERVAL_SECONDS}s")
+            f"Scan interval: every {SCAN_INTERVAL_SECONDS // 60} min")
 
 def check_updates():
     global last_update_id
@@ -80,7 +78,7 @@ def check_updates():
         if text == "/start":
             send_to_me("Princex Strategy bot online. Auto scanning is always running.")
         elif text in ("/price", "Current Price"):
-            send_to_me(get_live_prices_text())
+            send_to_me(get_cached_prices_text())
         elif text in ("/status", "Auto Strategy"):
             send_to_me(get_strategy_status_text())
 
@@ -92,17 +90,17 @@ def process_symbol(symbol):
     if len(closes) < 201:
         return
 
+    emas = ema(closes, 200)
+    last_close, last_ema = closes[-1], emas[-1]
+    cache[symbol] = {"price": last_close, "ema200": last_ema, "updated": times[-1]}
+
     st = state[symbol]
     current_candle_time = times[-1]
-
     if st["last_candle_time"] == current_candle_time:
         return
     st["last_candle_time"] = current_candle_time
 
-    emas = ema(closes, 200)
     prev_close, prev_ema = closes[-2], emas[-2]
-    last_close, last_ema = closes[-1], emas[-1]
-
     if prev_close < prev_ema and last_close > last_ema:
         send_to_channel(f"GET READY — {symbol} just crossed ABOVE EMA200 ({INTERVAL})\nPrice: {last_close}")
     elif prev_close > prev_ema and last_close < last_ema:
@@ -119,7 +117,8 @@ def main():
                     process_symbol(s)
                 except Exception as e:
                     print(f"Error {s}: {e}")
-                time.sleep(1)  # small gap between symbol requests
+                time.sleep(1)
+            send_to_me(get_cached_prices_text())
             last_check = now
         try:
             check_updates()
