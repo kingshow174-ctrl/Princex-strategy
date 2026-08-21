@@ -11,6 +11,7 @@ CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 SYMBOLS = ["BTC/USD", "ETH/USD", "EUR/USD", "XAU/USD"]
 INTERVAL = "1min"
 MAX_RUNTIME = 5 * 3600 + 50 * 60
+SCAN_INTERVAL_SECONDS = 75  # 4 symbols every 75s = ~3.2 req/min, safely under 8/min free limit
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 last_update_id = 0
@@ -26,6 +27,7 @@ def get_candles(symbol, size=210):
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={INTERVAL}&outputsize={size}&apikey={API_KEY}"
     r = requests.get(url, timeout=15).json()
     if "values" not in r:
+        print(f"Candle fetch error for {symbol}: {r}")
         return None
     values = list(reversed(r["values"]))
     closes = [float(v["close"]) for v in values]
@@ -55,15 +57,19 @@ def get_live_prices_text():
     for s in SYMBOLS:
         try:
             r = requests.get(f"https://api.twelvedata.com/price?symbol={s}&apikey={API_KEY}", timeout=10).json()
-            lines.append(f"{s}: {r.get('price', 'N/A')}")
-        except Exception:
-            lines.append(f"{s}: error")
+            if "price" in r:
+                lines.append(f"{s}: {r['price']}")
+            else:
+                lines.append(f"{s}: {r.get('message', 'unavailable')}")
+        except Exception as e:
+            lines.append(f"{s}: error - {e}")
     return "Current prices:\n" + "\n".join(lines)
 
 def get_strategy_status_text():
     return (f"Auto Strategy: ALWAYS ACTIVE ({INTERVAL} timeframe)\n"
             f"Mode: instant channel alert on any EMA200 cross\n"
-            f"Markets watched: {', '.join(SYMBOLS)}")
+            f"Markets watched: {', '.join(SYMBOLS)}\n"
+            f"Scan interval: every {SCAN_INTERVAL_SECONDS}s")
 
 def check_updates():
     global last_update_id
@@ -107,12 +113,13 @@ def main():
     last_check = 0
     while time.time() - start < MAX_RUNTIME:
         now = time.time()
-        if now - last_check >= 20:
+        if now - last_check >= SCAN_INTERVAL_SECONDS:
             for s in SYMBOLS:
                 try:
                     process_symbol(s)
                 except Exception as e:
                     print(f"Error {s}: {e}")
+                time.sleep(1)  # small gap between symbol requests
             last_check = now
         try:
             check_updates()
