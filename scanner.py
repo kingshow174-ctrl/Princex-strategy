@@ -64,17 +64,18 @@ def send_photo_to_channel(path, caption=""):
     with open(path, "rb") as f:
         requests.post(f"{TELEGRAM_API}/sendPhoto", data={"chat_id": CHANNEL_ID, "caption": caption}, files={"photo": f})
 
-def make_chart(symbol, closes, emas):
+def make_chart(symbol, closes, emas, show_ema=True):
     path = "/tmp/chart.png"
     last_n = 60
     c = closes[-last_n:]
-    e = emas[-last_n:]
     plt.figure(figsize=(8, 4.5), facecolor="#0d1117")
     ax = plt.gca()
     ax.set_facecolor("#0d1117")
     ax.plot(c, color="#4fd1c5", linewidth=1.5, label="Price")
-    ax.plot(e, color="#ff5c5c", linewidth=1.5, label="EMA200")
-    ax.set_title(f"{symbol} - {INTERVAL} - Price vs EMA200", color="white")
+    if show_ema:
+        e = emas[-last_n:]
+        ax.plot(e, color="#ff5c5c", linewidth=1.5, label="EMA200")
+    ax.set_title(f"{symbol} - {INTERVAL}", color="white")
     ax.tick_params(colors="white")
     for spine in ax.spines.values():
         spine.set_color("#2a2e39")
@@ -113,7 +114,7 @@ def check_updates():
             for s in SYMBOLS:
                 c = cache[s]
                 if c["closes"]:
-                    path = make_chart(s, c["closes"], c["emas"])
+                    path = make_chart(s, c["closes"], c["emas"], show_ema=True)
                     send_photo_to_me(path, caption=f"{s} price vs EMA200")
         elif text in ("/status", "Auto Strategy"):
             send_to_me(get_strategy_status_text())
@@ -138,11 +139,11 @@ def process_symbol(symbol):
 
     prev_close, prev_ema = closes[-2], emas[-2]
     if prev_close < prev_ema and last_close > last_ema:
-        path = make_chart(symbol, closes, emas)
-        send_photo_to_channel(path, caption=f"GET READY — {symbol} crossed ABOVE EMA200 ({INTERVAL})\nPrice: {last_close}")
+        path = make_chart(symbol, closes, emas, show_ema=False)
+        send_photo_to_channel(path, caption=f"GET READY — {symbol} setup forming ({INTERVAL})")
     elif prev_close > prev_ema and last_close < last_ema:
-        path = make_chart(symbol, closes, emas)
-        send_photo_to_channel(path, caption=f"GET READY — {symbol} crossed BELOW EMA200 ({INTERVAL})\nPrice: {last_close}")
+        path = make_chart(symbol, closes, emas, show_ema=False)
+        send_photo_to_channel(path, caption=f"GET READY — {symbol} setup forming ({INTERVAL})")
 
 def main():
     start = time.time()
