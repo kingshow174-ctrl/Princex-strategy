@@ -6,6 +6,7 @@ import requests
 API_KEY = os.environ["TWELVEDATA_API_KEY"]
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 
 SYMBOLS = ["BTC/USD", "ETH/USD", "EUR/USD", "XAU/USD"]
 INTERVAL = "1min"
@@ -40,11 +41,14 @@ def ema(values, period):
         out.append(e)
     return out
 
-def send_message(text, show_keyboard=True):
+def send_to_me(text, show_keyboard=True):
     payload = {"chat_id": CHAT_ID, "text": text}
     if show_keyboard:
         payload["reply_markup"] = json.dumps(MAIN_KEYBOARD)
     requests.post(f"{TELEGRAM_API}/sendMessage", data=payload)
+
+def send_to_channel(text):
+    requests.post(f"{TELEGRAM_API}/sendMessage", data={"chat_id": CHANNEL_ID, "text": text})
 
 def get_live_prices_text():
     lines = []
@@ -58,7 +62,7 @@ def get_live_prices_text():
 
 def get_strategy_status_text():
     return (f"Auto Strategy: ALWAYS ACTIVE ({INTERVAL} timeframe)\n"
-            f"Mode: instant alert on any EMA200 cross\n"
+            f"Mode: instant channel alert on any EMA200 cross\n"
             f"Markets watched: {', '.join(SYMBOLS)}")
 
 def check_updates():
@@ -68,11 +72,11 @@ def check_updates():
         last_update_id = u["update_id"]
         text = u.get("message", {}).get("text", "").strip()
         if text == "/start":
-            send_message("Princex Strategy bot online. Auto scanning is always running.")
+            send_to_me("Princex Strategy bot online. Auto scanning is always running.")
         elif text in ("/price", "Current Price"):
-            send_message(get_live_prices_text())
+            send_to_me(get_live_prices_text())
         elif text in ("/status", "Auto Strategy"):
-            send_message(get_strategy_status_text())
+            send_to_me(get_strategy_status_text())
 
 def process_symbol(symbol):
     data = get_candles(symbol)
@@ -85,7 +89,6 @@ def process_symbol(symbol):
     st = state[symbol]
     current_candle_time = times[-1]
 
-    # only act once per newly closed candle
     if st["last_candle_time"] == current_candle_time:
         return
     st["last_candle_time"] = current_candle_time
@@ -95,9 +98,9 @@ def process_symbol(symbol):
     last_close, last_ema = closes[-1], emas[-1]
 
     if prev_close < prev_ema and last_close > last_ema:
-        send_message(f"{symbol} candle crossed ABOVE EMA200 ({INTERVAL})\nClose: {last_close}\nEMA200: {round(last_ema, 5)}")
+        send_to_channel(f"GET READY — {symbol} just crossed ABOVE EMA200 ({INTERVAL})\nPrice: {last_close}")
     elif prev_close > prev_ema and last_close < last_ema:
-        send_message(f"{symbol} candle crossed BELOW EMA200 ({INTERVAL})\nClose: {last_close}\nEMA200: {round(last_ema, 5)}")
+        send_to_channel(f"GET READY — {symbol} just crossed BELOW EMA200 ({INTERVAL})\nPrice: {last_close}")
 
 def main():
     start = time.time()
