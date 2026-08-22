@@ -2,6 +2,7 @@ import os
 import time
 import json
 import requests
+from datetime import datetime, timezone
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -11,7 +12,10 @@ BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 
-SYMBOLS = ["BTC/USD", "ETH/USD", "EUR/USD", "XAU/USD"]
+CRYPTO_SYMBOLS = ["BTC/USD", "ETH/USD"]
+FOREX_SYMBOLS = ["EUR/USD", "XAU/USD"]
+SYMBOLS = CRYPTO_SYMBOLS + FOREX_SYMBOLS
+
 INTERVAL = "1min"
 MAX_RUNTIME = 5 * 3600 + 50 * 60
 SCAN_INTERVAL_SECONDS = 15 * 60
@@ -26,6 +30,18 @@ MAIN_KEYBOARD = {
     "resize_keyboard": True,
     "is_persistent": True
 }
+
+def is_forex_market_open():
+    now = datetime.now(timezone.utc)
+    wd = now.weekday()  # 0=Mon ... 5=Sat, 6=Sun
+    # Forex/gold: closed from Fri 21:00 UTC to Sun 21:00 UTC (approx standard hours)
+    if wd == 5:  # Saturday - always closed
+        return False
+    if wd == 4 and now.hour >= 21:  # Friday after 21:00 UTC
+        return False
+    if wd == 6 and now.hour < 21:  # Sunday before 21:00 UTC
+        return False
+    return True
 
 def get_candles(symbol, size=210):
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={INTERVAL}&outputsize={size}&apikey={API_KEY}"
@@ -52,9 +68,6 @@ def send_to_me(text, show_keyboard=True):
     if show_keyboard:
         payload["reply_markup"] = json.dumps(MAIN_KEYBOARD)
     requests.post(f"{TELEGRAM_API}/sendMessage", data=payload)
-
-def send_to_channel(text):
-    requests.post(f"{TELEGRAM_API}/sendMessage", data={"chat_id": CHANNEL_ID, "text": text})
 
 def send_photo_to_me(path, caption=""):
     with open(path, "rb") as f:
@@ -96,9 +109,11 @@ def get_cached_prices_text():
     return "Latest cached data (updates every 15 min):\n" + "\n".join(lines)
 
 def get_strategy_status_text():
+    fx_status = "OPEN" if is_forex_market_open() else "CLOSED (weekend)"
     return (f"Auto Strategy: ALWAYS ACTIVE ({INTERVAL} timeframe)\n"
             f"Mode: instant channel alert on any EMA200 cross\n"
-            f"Markets watched: {', '.join(SYMBOLS)}\n"
+            f"Crypto watched: {', '.join(CRYPTO_SYMBOLS)} (24/7)\n"
+            f"Forex/Gold watched: {', '.join(FOREX_SYMBOLS)} (market {fx_status})\n"
             f"Scan interval: every {SCAN_INTERVAL_SECONDS // 60} min")
 
 def check_updates():
@@ -138,10 +153,9 @@ def process_symbol(symbol):
     st["last_candle_time"] = current_candle_time
 
     prev_close, prev_ema = closes[-2], emas[-2]
-    if prev_close < prev_ema and last_close > last_ema:
-        path = make_chart(symbol, closes, emas, show_ema=False)
-        send_photo_to_channel(path, caption=f"GET READY — {symbol} setup forming ({INTERVAL})")
-    elif prev_close > prev_ema and last_close < last_ema:
+    crossed_up = prev_close < prev_ema and last_close > last_ema
+    crossed_down = prev_close > prev_ema and last_close < last_ema
+    if crossed_up or crossed_down:
         path = make_chart(symbol, closes, emas, show_ema=False)
         send_photo_to_channel(path, caption=f"GET READY — {symbol} setup forming ({INTERVAL})")
 
@@ -151,13 +165,15 @@ def main():
     while time.time() - start < MAX_RUNTIME:
         now = time.time()
         if now - last_check >= SCAN_INTERVAL_SECONDS:
-            for s in SYMBOLS:
+            fx_open = is_forex_market_open()
+            active_symbols = CRYPTO_SYMBOLS + (FOREX_SYMBOLS if fx_open else [])
+            for s in active_symbols:
                 try:
                     process_symbol(s)
                 except Exception as e:
                     print(f"Error {s}: {e}")
                 time.sleep(1)
-            send_to_me(get_cached_prices_text())
+            send_to_me(get_cached_prices_text() + ("\n\n(Forex/Gold market closed, not scanned)" if not fx_open else ""))
             last_check = now
         try:
             check_updates()
