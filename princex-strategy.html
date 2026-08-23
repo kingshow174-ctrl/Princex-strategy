@@ -167,6 +167,19 @@
     font-size: 12px;
     margin-bottom: 14px;
   }
+  #derivChart {
+    width: 100%;
+    height: 220px;
+    background: #0d1117;
+    border-radius: 6px;
+    display: block;
+  }
+  #chart-price-label {
+    font-size: 18px;
+    font-weight: 700;
+    color: #4fd1c5;
+    margin-bottom: 8px;
+  }
 </style>
 </head>
 <body>
@@ -205,7 +218,7 @@
     <div class="card">
       <h3>Connection</h3>
       <div class="field">
-        <label>App ID (default is fine unless you registered your own)</label>
+        <label>App ID (use your own — register free at api.deriv.com)</label>
         <input type="text" id="app_id" value="1089">
       </div>
       <div class="field">
@@ -216,6 +229,12 @@
         <span id="status-dot"></span>Connect
       </button>
       <div style="margin-top:10px;">Balance: <span id="balance-display">--</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Live Chart</h3>
+      <div id="chart-price-label">--</div>
+      <canvas id="derivChart" width="440" height="220"></canvas>
     </div>
 
     <div class="card">
@@ -327,6 +346,8 @@
 
   let derivWS = null;
   let derivConnected = false;
+  let pingInterval = null;
+  let candleData = [];
 
   function logTrade(msg) {
     const log = document.getElementById('trade-log');
@@ -348,17 +369,27 @@
     else if (this.value === 'EVENODD') { btnLeft.textContent = 'Even'; btnRight.textContent = 'Odd'; }
   });
 
+  document.getElementById('trade_symbol').addEventListener('change', function() {
+    if (derivConnected) requestChartData(this.value);
+  });
+
   function connectDeriv() {
     const appId = document.getElementById('app_id').value.trim() || '1089';
     const token = document.getElementById('api_token').value.trim();
     if (!token) { alert('Enter your API token first.'); return; }
 
     if (derivWS) { derivWS.close(); }
+    if (pingInterval) clearInterval(pingInterval);
+
+    logTrade(`Connecting with app_id ${appId}...`);
     derivWS = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${appId}`);
 
     derivWS.onopen = () => {
       logTrade('Socket opened, authorizing...');
       derivWS.send(JSON.stringify({ authorize: token }));
+      pingInterval = setInterval(() => {
+        if (derivWS && derivWS.readyState === 1) derivWS.send(JSON.stringify({ ping: 1 }));
+      }, 30000);
     };
 
     derivWS.onmessage = (msg) => {
@@ -375,6 +406,7 @@
         document.getElementById('status-dot').classList.add('connected');
         logTrade('Authorized as ' + data.authorize.loginid);
         derivWS.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+        requestChartData(document.getElementById('trade_symbol').value);
       }
 
       if (data.msg_type === 'balance') {
@@ -397,14 +429,76 @@
         }
         derivWS.send(JSON.stringify({ buy: data.proposal.id, price: data.proposal.ask_price }));
       }
+
+      if (data.msg_type === 'candles') {
+        if (data.error) { logTrade('Chart error: ' + data.error.message); return; }
+        candleData = data.candles.map(c => parseFloat(c.close));
+        drawChart();
+        if (candleData.length) updatePriceLabel(candleData[candleData.length - 1]);
+      }
+
+      if (data.msg_type === 'ohlc') {
+        if (data.error) return;
+        const close = parseFloat(data.ohlc.close);
+        if (candleData.length) {
+          candleData[candleData.length - 1] = close;
+        } else {
+          candleData.push(close);
+        }
+        drawChart();
+        updatePriceLabel(close);
+      }
     };
 
-    derivWS.onerror = () => logTrade('WebSocket error.');
+    derivWS.onerror = (e) => logTrade('WebSocket error — connection could not be established. Try registering your own app_id at api.deriv.com.');
     derivWS.onclose = () => {
       derivConnected = false;
       document.getElementById('status-dot').classList.remove('connected');
+      if (pingInterval) clearInterval(pingInterval);
       logTrade('Disconnected.');
     };
+  }
+
+  function requestChartData(symbol) {
+    if (!derivWS || derivWS.readyState !== 1) return;
+    derivWS.send(JSON.stringify({ forget_all: 'candles' }));
+    derivWS.send(JSON.stringify({
+      ticks_history: symbol,
+      style: 'candles',
+      granularity: 60,
+      count: 60,
+      end: 'latest',
+      subscribe: 1
+    }));
+  }
+
+  function updatePriceLabel(price) {
+    document.getElementById('chart-price-label').textContent = price;
+  }
+
+  function drawChart() {
+    const canvas = document.getElementById('derivChart');
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, w, h);
+    if (candleData.length < 2) return;
+
+    const min = Math.min(...candleData);
+    const max = Math.max(...candleData);
+    const range = (max - min) || 1;
+    const padding = 10;
+
+    ctx.beginPath();
+    ctx.strokeStyle = '#4fd1c5';
+    ctx.lineWidth = 2;
+    candleData.forEach((price, i) => {
+      const x = padding + (i / (candleData.length - 1)) * (w - padding * 2);
+      const y = h - padding - ((price - min) / range) * (h - padding * 2);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
   }
 
   function buildContractType(category, direction) {
