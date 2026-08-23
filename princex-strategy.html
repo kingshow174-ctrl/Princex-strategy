@@ -27,6 +27,29 @@
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
   }
+  .top-tabs {
+    display: flex;
+    gap: 8px;
+    padding: 10px 16px;
+    background: #0a0d12;
+    border-bottom: 1px solid #2a2e39;
+  }
+  .top-tabs button {
+    flex: 1;
+    background: #1c2030;
+    color: #9aa5b1;
+    border: 1px solid #2a2e39;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .top-tabs button.active {
+    background: #63b3ed;
+    color: #0d1117;
+    border-color: #63b3ed;
+  }
   .symbol-bar {
     display: flex;
     gap: 8px;
@@ -54,11 +77,95 @@
   }
   #chart-container {
     width: 100%;
-    height: calc(100vh - 110px);
+    height: calc(100vh - 160px);
   }
   #tv_chart {
     width: 100%;
     height: 100%;
+  }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  #deriv-panel {
+    padding: 16px;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  .card {
+    background: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .card h3 {
+    font-size: 14px;
+    color: #9aa5b1;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .field { margin-bottom: 10px; }
+  .field label {
+    display: block;
+    font-size: 12px;
+    color: #9aa5b1;
+    margin-bottom: 4px;
+  }
+  .field input, .field select {
+    width: 100%;
+    background: #0d1117;
+    border: 1px solid #2a2e39;
+    color: #e6edf3;
+    padding: 10px;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  .btn {
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    border: none;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .btn-connect { background: #63b3ed; color: #0d1117; }
+  .btn-rise { background: #26a69a; color: #fff; }
+  .btn-fall { background: #ef5350; color: #fff; }
+  .trade-row { display: flex; gap: 10px; }
+  .trade-row .btn { flex: 1; }
+  #balance-display {
+    font-size: 20px;
+    font-weight: 700;
+    color: #4fd1c5;
+  }
+  #status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ef5350;
+    margin-right: 6px;
+  }
+  #status-dot.connected { background: #26a69a; }
+  #trade-log {
+    max-height: 220px;
+    overflow-y: auto;
+    font-size: 12px;
+    color: #9aa5b1;
+    font-family: monospace;
+  }
+  #trade-log div { padding: 4px 0; border-bottom: 1px solid #1c2030; }
+  .warning-box {
+    background: #2a1c1c;
+    border: 1px solid #5c2a2a;
+    color: #ff9b9b;
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    margin-bottom: 14px;
   }
 </style>
 </head>
@@ -69,25 +176,121 @@
   <span id="clock" style="font-size:12px;color:#9aa5b1;"></span>
 </header>
 
-<div class="symbol-bar" id="symbolBar">
-  <button data-symbol="BINANCE:BTCUSDT" class="active">BTC/USDT</button>
-  <button data-symbol="BINANCE:ETHUSDT">ETH/USDT</button>
-  <button data-symbol="BINANCE:SOLUSDT">SOL/USDT</button>
-  <button data-symbol="OANDA:XAUUSD">XAU/USD</button>
-  <button data-symbol="OANDA:EURUSD">EUR/USD</button>
-  <button data-symbol="NASDAQ:AAPL">AAPL</button>
+<div class="top-tabs">
+  <button id="tab-chart" class="active" onclick="switchTab('chart')">Chart</button>
+  <button id="tab-deriv" onclick="switchTab('deriv')">Deriv</button>
 </div>
 
-<div id="chart-container">
-  <div id="tv_chart"></div>
+<div id="view-chart" class="view active">
+  <div class="symbol-bar" id="symbolBar">
+    <button data-symbol="BINANCE:BTCUSDT" class="active">BTC/USDT</button>
+    <button data-symbol="BINANCE:ETHUSDT">ETH/USDT</button>
+    <button data-symbol="BINANCE:SOLUSDT">SOL/USDT</button>
+    <button data-symbol="OANDA:XAUUSD">XAU/USD</button>
+    <button data-symbol="OANDA:EURUSD">EUR/USD</button>
+    <button data-symbol="NASDAQ:AAPL">AAPL</button>
+  </div>
+  <div id="chart-container">
+    <div id="tv_chart"></div>
+  </div>
+</div>
+
+<div id="view-deriv" class="view">
+  <div id="deriv-panel">
+
+    <div class="warning-box">
+      This places REAL trades with REAL money if you use a live token. Use a Deriv Demo account token first to test. Your token is only kept in this browser tab's memory — it is never saved, never sent anywhere except Deriv's own servers, and disappears when you close this page.
+    </div>
+
+    <div class="card">
+      <h3>Connection</h3>
+      <div class="field">
+        <label>App ID (default is fine unless you registered your own)</label>
+        <input type="text" id="app_id" value="1089">
+      </div>
+      <div class="field">
+        <label>API Token</label>
+        <input type="password" id="api_token" placeholder="Paste your Deriv API token">
+      </div>
+      <button class="btn btn-connect" onclick="connectDeriv()">
+        <span id="status-dot"></span>Connect
+      </button>
+      <div style="margin-top:10px;">Balance: <span id="balance-display">--</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Trade Setup</h3>
+      <div class="field">
+        <label>Symbol</label>
+        <select id="trade_symbol">
+          <option value="R_10">Volatility 10 Index</option>
+          <option value="R_25">Volatility 25 Index</option>
+          <option value="R_50">Volatility 50 Index</option>
+          <option value="R_75">Volatility 75 Index</option>
+          <option value="R_100">Volatility 100 Index</option>
+          <option value="frxEURUSD">EUR/USD</option>
+          <option value="frxXAUUSD">XAU/USD (Gold)</option>
+          <option value="cryBTCUSD">BTC/USD</option>
+          <option value="cryETHUSD">ETH/USD</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Option Type</label>
+        <select id="contract_category">
+          <option value="RISEFALL">Rise / Fall</option>
+          <option value="HIGHERLOWER">Higher / Lower (with barrier)</option>
+          <option value="TOUCH">Touch / No Touch (with barrier)</option>
+          <option value="MATCHESDIFFERS">Matches / Differs (digit)</option>
+          <option value="EVENODD">Even / Odd (digit)</option>
+        </select>
+      </div>
+      <div class="field" id="barrier-field" style="display:none;">
+        <label>Barrier (e.g. +0.5 or -0.5, or exact digit for Matches/Differs)</label>
+        <input type="text" id="barrier" placeholder="e.g. +0.10">
+      </div>
+      <div class="field">
+        <label>Stake (USD)</label>
+        <input type="number" id="stake" value="1" min="0.35" step="0.01">
+      </div>
+      <div class="field">
+        <label>Duration</label>
+        <div style="display:flex; gap:8px;">
+          <input type="number" id="duration" value="5" min="1" style="flex:1;">
+          <select id="duration_unit" style="flex:1;">
+            <option value="t">Ticks</option>
+            <option value="s">Seconds</option>
+            <option value="m">Minutes</option>
+            <option value="h">Hours</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="trade-row">
+        <button class="btn btn-rise" id="btn-left" onclick="placeTrade('up')">Rise</button>
+        <button class="btn btn-fall" id="btn-right" onclick="placeTrade('down')">Fall</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Trade Log</h3>
+      <div id="trade-log"><div>Waiting for connection...</div></div>
+    </div>
+
+  </div>
 </div>
 
 <script src="https://s3.tradingview.com/tv.js"></script>
 <script>
-  let tvWidget = null;
+  function switchTab(tab) {
+    document.getElementById('view-chart').classList.toggle('active', tab === 'chart');
+    document.getElementById('view-deriv').classList.toggle('active', tab === 'deriv');
+    document.getElementById('tab-chart').classList.toggle('active', tab === 'chart');
+    document.getElementById('tab-deriv').classList.toggle('active', tab === 'deriv');
+  }
+
   function loadChart(symbol) {
-    document.getElementById("tv_chart").innerHTML = "";
-    tvWidget = new TradingView.widget({
+    document.getElementById('tv_chart').innerHTML = '';
+    new TradingView.widget({
       "autosize": true,
       "symbol": symbol,
       "interval": "15",
@@ -100,13 +303,11 @@
       "hide_top_toolbar": false,
       "hide_legend": false,
       "save_image": false,
+      "studies": ["EMA@tv-basicstudies"],
+      "studies_overrides": { "moving average exponential.length": 200 },
       "container_id": "tv_chart"
     });
-    tvWidget.onChartReady(function() {
-      tvWidget.chart().createStudy("Moving Average Exponential", false, false, [200]);
-    });
   }
-
   loadChart("BINANCE:BTCUSDT");
 
   document.querySelectorAll('.symbol-bar button').forEach(btn => {
@@ -123,6 +324,135 @@
   }
   setInterval(updateClock, 1000);
   updateClock();
+
+  let derivWS = null;
+  let derivConnected = false;
+
+  function logTrade(msg) {
+    const log = document.getElementById('trade-log');
+    const line = document.createElement('div');
+    const t = new Date().toLocaleTimeString();
+    line.textContent = `[${t}] ${msg}`;
+    log.insertBefore(line, log.firstChild);
+  }
+
+  document.getElementById('contract_category').addEventListener('change', function() {
+    const needsBarrier = ['HIGHERLOWER', 'TOUCH', 'MATCHESDIFFERS'].includes(this.value);
+    document.getElementById('barrier-field').style.display = needsBarrier ? 'block' : 'none';
+    const btnLeft = document.getElementById('btn-left');
+    const btnRight = document.getElementById('btn-right');
+    if (this.value === 'RISEFALL') { btnLeft.textContent = 'Rise'; btnRight.textContent = 'Fall'; }
+    else if (this.value === 'HIGHERLOWER') { btnLeft.textContent = 'Higher'; btnRight.textContent = 'Lower'; }
+    else if (this.value === 'TOUCH') { btnLeft.textContent = 'Touch'; btnRight.textContent = 'No Touch'; }
+    else if (this.value === 'MATCHESDIFFERS') { btnLeft.textContent = 'Matches'; btnRight.textContent = 'Differs'; }
+    else if (this.value === 'EVENODD') { btnLeft.textContent = 'Even'; btnRight.textContent = 'Odd'; }
+  });
+
+  function connectDeriv() {
+    const appId = document.getElementById('app_id').value.trim() || '1089';
+    const token = document.getElementById('api_token').value.trim();
+    if (!token) { alert('Enter your API token first.'); return; }
+
+    if (derivWS) { derivWS.close(); }
+    derivWS = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${appId}`);
+
+    derivWS.onopen = () => {
+      logTrade('Socket opened, authorizing...');
+      derivWS.send(JSON.stringify({ authorize: token }));
+    };
+
+    derivWS.onmessage = (msg) => {
+      const data = JSON.parse(msg.data);
+
+      if (data.msg_type === 'authorize') {
+        if (data.error) {
+          logTrade('Auth failed: ' + data.error.message);
+          derivConnected = false;
+          document.getElementById('status-dot').classList.remove('connected');
+          return;
+        }
+        derivConnected = true;
+        document.getElementById('status-dot').classList.add('connected');
+        logTrade('Authorized as ' + data.authorize.loginid);
+        derivWS.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+      }
+
+      if (data.msg_type === 'balance') {
+        document.getElementById('balance-display').textContent =
+          data.balance.balance + ' ' + data.balance.currency;
+      }
+
+      if (data.msg_type === 'buy') {
+        if (data.error) {
+          logTrade('Trade failed: ' + data.error.message);
+        } else {
+          logTrade(`Trade placed: contract ${data.buy.contract_id}, bought for ${data.buy.buy_price}`);
+        }
+      }
+
+      if (data.msg_type === 'proposal') {
+        if (data.error) {
+          logTrade('Proposal error: ' + data.error.message);
+          return;
+        }
+        derivWS.send(JSON.stringify({ buy: data.proposal.id, price: data.proposal.ask_price }));
+      }
+    };
+
+    derivWS.onerror = () => logTrade('WebSocket error.');
+    derivWS.onclose = () => {
+      derivConnected = false;
+      document.getElementById('status-dot').classList.remove('connected');
+      logTrade('Disconnected.');
+    };
+  }
+
+  function buildContractType(category, direction) {
+    const map = {
+      RISEFALL: { up: 'CALL', down: 'PUT' },
+      HIGHERLOWER: { up: 'CALL', down: 'PUT' },
+      TOUCH: { up: 'ONETOUCH', down: 'NOTOUCH' },
+      MATCHESDIFFERS: { up: 'DIGITMATCH', down: 'DIGITDIFF' },
+      EVENODD: { up: 'DIGITEVEN', down: 'DIGITODD' }
+    };
+    return map[category][direction];
+  }
+
+  function placeTrade(direction) {
+    if (!derivConnected) { alert('Connect your account first.'); return; }
+
+    const symbol = document.getElementById('trade_symbol').value;
+    const category = document.getElementById('contract_category').value;
+    const contractType = buildContractType(category, direction);
+    const stake = parseFloat(document.getElementById('stake').value);
+    const duration = parseInt(document.getElementById('duration').value);
+    const durationUnit = document.getElementById('duration_unit').value;
+    const barrier = document.getElementById('barrier').value.trim();
+
+    const needsBarrier = ['HIGHERLOWER', 'TOUCH', 'MATCHESDIFFERS'].includes(category);
+    if (needsBarrier && !barrier) {
+      alert('This option type needs a barrier value.');
+      return;
+    }
+
+    const confirmMsg = `Confirm REAL trade:\n${contractType} on ${symbol}\nStake: $${stake}\nDuration: ${duration}${durationUnit}` +
+      (needsBarrier ? `\nBarrier: ${barrier}` : '');
+    if (!confirm(confirmMsg)) return;
+
+    const params = {
+      amount: stake,
+      basis: 'stake',
+      contract_type: contractType,
+      currency: 'USD',
+      duration: duration,
+      duration_unit: durationUnit,
+      symbol: symbol
+    };
+    if (needsBarrier) params.barrier = barrier;
+
+    logTrade(`Requesting proposal: ${contractType} ${symbol} $${stake}`);
+    derivWS.send(JSON.stringify({ proposal: 1, ...params }));
+  }
 </script>
 
 </body>
